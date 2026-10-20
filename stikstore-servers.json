@@ -1,0 +1,8 @@
+{
+  "servers": [
+    {
+      "name": "StikStore (secondary)",
+      "address": "https://ani2.stikstore.app"
+    }
+  ]
+}

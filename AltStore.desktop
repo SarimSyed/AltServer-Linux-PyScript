@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=AltStore for Linux
+Comment=Install AltStore and check your iPad connection
+Exec=python3 "/home/sarim/Documents/ChatGPT/altstore/main.py"
+Path=/home/sarim/Documents/ChatGPT/altstore
+Icon=phone
+Terminal=true
+Categories=Utility;

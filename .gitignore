@@ -1,4 +1,8 @@
 .DS_Store
 AltServerData
-resource
+resource/
+provision-config/
+__pycache__/
 version.json
+upstream-contribution/
+pairing-files/
