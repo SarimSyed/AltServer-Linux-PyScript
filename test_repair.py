@@ -1,4 +1,5 @@
 import io
+import os
 import tarfile
 import tempfile
 import unittest
@@ -10,6 +11,52 @@ import altserver as main
 
 
 class RepairChecks(unittest.TestCase):
+    def test_remote_anisette_is_used_by_children_without_starting_podman(self):
+        url = "https://example.invalid/anisette"
+        response = Mock()
+        response.json.return_value = {
+            "X-Apple-I-MD": "test-otp",
+            "X-Apple-I-MD-M": "test-machine",
+            "X-MMe-Client-Info": "test-client",
+        }
+        with patch.dict(os.environ), patch.object(main.requests, "get", return_value=response) as get, \
+                patch.object(main.os, "makedirs") as mkdir, \
+                patch.object(main.subprocess, "run") as run, \
+                patch.object(main.subprocess, "Popen") as popen:
+            helper = main.AnisetteServer(url=url)
+            daemon = main.AltServerDaemon()
+            self.assertEqual(popen.call_args.kwargs["env"]["ALTSERVER_ANISETTE_SERVER"], url)
+            installer = main.InstallationManager()
+            installer.selectedDevice = main.iDevice("test", "test-udid")
+            installer.account = "test@example.invalid"
+            installer.password = "test-password"
+            installer.filePath = "/tmp/test.ipa"
+            installer.run()
+            self.assertEqual(run.call_args.kwargs["env"]["ALTSERVER_ANISETTE_SERVER"], url)
+            run.reset_mock()
+            helper.kill()
+            daemon.kill()
+            get.assert_called_once_with(url, timeout=10)
+            response.raise_for_status.assert_called_once()
+            mkdir.assert_not_called()
+            run.assert_not_called()
+
+    def test_remote_anisette_rejects_metadata_instead_of_signing_headers(self):
+        response = Mock()
+        response.json.return_value = {"client_info": "test-client", "user_agent": "test-agent"}
+        with patch.dict(os.environ), patch.object(main.requests, "get", return_value=response), \
+                patch.object(main.subprocess, "run") as run:
+            with self.assertRaisesRegex(RuntimeError, "legacy signing headers"):
+                main.AnisetteServer(url="https://example.invalid")
+            run.assert_not_called()
+
+    def test_remote_anisette_rejects_invalid_url_before_network_request(self):
+        with patch.object(main.requests, "get") as get:
+            for url in ("file:///tmp/data", "https://user:password@example.invalid", "not-a-url"):
+                with self.subTest(url=url), self.assertRaises(ValueError):
+                    main.AnisetteServer(url=url)
+            get.assert_not_called()
+
     def test_failed_download_preserves_existing_file(self):
         response = Mock()
         response.raise_for_status.side_effect = requests.HTTPError("404")

@@ -22,6 +22,23 @@ Keep the terminal open while using it. Enter `p` to list devices, `i` to install
 `w` for Wi-Fi mode, `t` for USB mode, or `e` to exit. The checkout must stay in
 place because the command links to it. Run as your normal user.
 
+To use jkcoxson's remote Anisette server instead of the local helper:
+
+```bash
+altserver --anisette-server https://mac-ani.jkcoxson.com
+```
+
+Exit the running script with `e` before restarting with this option. A successful
+start prints `Using remote Anisette server:` with the chosen URL. Remote mode
+starts no local container and does not require Podman. The option is per run;
+plain `altserver` continues to use the local helper.
+
+Use the server's base URL, not `/v3/client_info`. This older AltServer expects a
+legacy JSON response containing signing headers; a v3-only server or metadata
+URL is incompatible. Endpoint format validation does not verify Apple sign-in.
+Keep credentials, verification codes, and Anisette header values out of logs
+shared with others.
+
 For the guided iLoader menu instead:
 
 ```bash

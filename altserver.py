@@ -1,4 +1,5 @@
 import os
+import argparse
 import json
 import shutil
 import getpass
@@ -10,6 +11,7 @@ import io
 import tarfile
 import time
 from ctypes import CDLL
+from urllib.parse import urlsplit
 
 
 # Developer settings
@@ -307,7 +309,27 @@ class AnisetteServer:
     # The upstream native helper requires an older OpenSSL than Fedora provides.
     image = "localhost/altstore-anisette:fedora"
 
-    def __init__(self, host=ANISETTE_HOST, port=ANISETTE_PORT):
+    def __init__(self, host=ANISETTE_HOST, port=ANISETTE_PORT, url=None):
+        self.local = url is None
+        if not self.local:
+            parsed = urlsplit(url)
+            if (parsed.scheme not in ("http", "https") or not parsed.hostname
+                    or parsed.username is not None or parsed.password is not None
+                    or parsed.query or parsed.fragment):
+                raise ValueError("Use an HTTP(S) Anisette URL without credentials, query, or fragment")
+            self.url = url
+            try:
+                response = requests.get(self.url, timeout=10)
+                response.raise_for_status()
+                data = response.json()
+            except (requests.RequestException, ValueError):
+                raise RuntimeError("Cannot read the remote Anisette endpoint; check its URL and availability") from None
+            required = ("X-Apple-I-MD", "X-Apple-I-MD-M", "X-MMe-Client-Info")
+            if not isinstance(data, dict) or not all(isinstance(data.get(key), str) and data[key] for key in required):
+                raise RuntimeError("Remote endpoint must return legacy signing headers, not v3 metadata")
+            os.environ["ALTSERVER_ANISETTE_SERVER"] = self.url
+            print(f"Using remote Anisette server: {self.url}")
+            return
         self.url = f"http://{host}:{port}"
         os.environ["ALTSERVER_ANISETTE_SERVER"] = self.url
         config = os.path.join(CURRENT_DIRECTORY, "provision-config")
@@ -333,8 +355,9 @@ class AnisetteServer:
         raise RuntimeError("Local Anisette helper did not become ready; inspect podman logs altstore-anisette locally")
 
     def kill(self):
-        subprocess.run(["podman", "stop", "--time", "1", "altstore-anisette"],
-                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        if self.local:
+            subprocess.run(["podman", "stop", "--time", "1", "altstore-anisette"],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
 class AltServerDaemon:
@@ -460,8 +483,11 @@ class InstallationManager:
             [ALTSERVER_PATH, "-u", self.selectedDevice.UDID, "-a", self.account,
              "-p", self.password, self.filePath], env={**os.environ, "TZ": "UTC"})
 
-def main():
-    missing = [name for name in ("idevice_id", "ideviceinfo", "idevicepair", "podman")
+def main(anisette_url=None):
+    tools = ["idevice_id", "ideviceinfo", "idevicepair"]
+    if anisette_url is None:
+        tools.append("podman")
+    missing = [name for name in tools
                if not shutil.which(name)]
     if missing:
         raise SystemExit("Missing tools: " + ", ".join(missing) +
@@ -471,7 +497,7 @@ def main():
     except OSError:
         raise SystemExit("Run: sudo dnf install avahi-compat-libdns_sd-devel")
     CheckResource()
-    anisetteserver = AnisetteServer()
+    anisetteserver = AnisetteServer(url=anisette_url)
     netmuxd = Netmuxd()
     altserverdaemon = AltServerDaemon()
     device_manager = DeviceManager()
@@ -562,8 +588,15 @@ https://github.com/powenn/AltServer-Linux-PyScript
 """
 
 if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description="Run the repaired AltServer on Linux")
+    parser.add_argument("--anisette-server", metavar="URL",
+                        help="Use a remote legacy Anisette JSON endpoint instead of the local Podman helper")
+    args = parser.parse_args()
     DebugPrint("Script Start")
     DebugPrint(
         f"RUNNING AT {CURRENT_DIRECTORY} , RESOURCE_DIR : {RESOURCE_DIRECTORY}")
     DebugPrint(f"ARCH : {ARCH} , NETMUXD_AVAILABLE : {NETMUXD_IS_AVAILABLE}")
-    main()
+    try:
+        main(anisette_url=args.anisette_server)
+    except (RuntimeError, ValueError) as error:
+        raise SystemExit(str(error)) from None
